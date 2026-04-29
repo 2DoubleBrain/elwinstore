@@ -8,14 +8,67 @@ let currentCategory = 'all';
 
 // Переменные для модального окна
 let currentProduct = null;
-let selectedRange = null;
+let selectedMemory = null;
 let selectedPrice = null;
-let selectedVariant = null;
+let selectedQuantity = 1;
+
+// ============ ПОЛУЧЕНИЕ ИНФОРМАЦИИ О ПОЛЬЗОВАТЕЛЕ ============
+function getUserInfo() {
+    let userName = 'Неизвестный';
+    let userId = 'Неизвестно';
+    let userUsername = 'Нет username';
+    let userPhone = 'Не указан';
+    
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
+        const user = window.Telegram.WebApp.initDataUnsafe.user;
+        if (user) {
+            userName = user.first_name || '';
+            if (user.last_name) userName += ' ' + user.last_name;
+            if (!userName.trim()) userName = 'Пользователь';
+            
+            userId = user.id || 'Неизвестно';
+            userUsername = user.username ? '@' + user.username : 'Нет username';
+        }
+    }
+    
+    const savedUser = localStorage.getItem('elwin_user_info');
+    if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed.userPhone) userPhone = parsed.userPhone;
+    }
+    
+    return { userName, userId, userUsername, userPhone };
+}
+
+function saveUserInfo(phoneNumber = null) {
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
+        const user = window.Telegram.WebApp.initDataUnsafe.user;
+        if (user) {
+            let userName = user.first_name || '';
+            if (user.last_name) userName += ' ' + user.last_name;
+            if (!userName.trim()) userName = 'Пользователь';
+            
+            const existing = localStorage.getItem('elwin_user_info');
+            let existingPhone = null;
+            if (existing) {
+                const parsed = JSON.parse(existing);
+                existingPhone = parsed.userPhone;
+            }
+            
+            const userInfo = {
+                userName: userName,
+                userId: user.id,
+                userUsername: user.username ? '@' + user.username : 'Нет username',
+                userPhone: phoneNumber || existingPhone || 'Не указан'
+            };
+            localStorage.setItem('elwin_user_info', JSON.stringify(userInfo));
+        }
+    }
+}
 
 // ============ ЗАГРУЗКА ДАННЫХ ============
 async function loadData() {
     try {
-        // Пробуем загрузить data.json
         console.log('Загрузка data.json...');
         const response = await fetch('./data.json');
         
@@ -24,7 +77,7 @@ async function loadData() {
         }
         
         const data = await response.json();
-        console.log('Данные загружены:', data);
+        console.log('Данные загружены');
         
         products = data.products;
         categories = data.categories;
@@ -35,41 +88,36 @@ async function loadData() {
             botToken: data.botToken
         };
         
-        // Загружаем корзину
-        const savedCart = localStorage.getItem('amigoopt_cart');
-        if (savedCart) cart = JSON.parse(savedCart);
+        const savedCart = localStorage.getItem('elwin_cart');
+        if (savedCart) {
+            cart = JSON.parse(savedCart);
+        }
         
-        // Инициализация Telegram WebApp
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.expand();
         }
         
-        // Запускаем приложение
         initApp();
         
     } catch (error) {
         console.error('Ошибка загрузки:', error);
-        // Показываем понятную ошибку
         document.getElementById('mainContent').innerHTML = `
             <div style="text-align:center; padding:50px; color:red;">
                 ❌ Ошибка загрузки данных<br>
                 <small style="color:#888">${error.message}</small><br><br>
-                <button onclick="location.reload()" style="padding:10px 20px; background:#1a1a2e; color:white; border:none; border-radius:10px;">↻ Перезагрузить</button>
+                <button onclick="location.reload()" style="padding:10px 20px; background:#1a3a8c; color:white; border:none; border-radius:10px;">↻ Перезагрузить</button>
             </div>
         `;
     }
 }
 
-// ============ ИНИЦИАЛИЗАЦИЯ ============
 function initApp() {
-    console.log('Инициализация приложения, товаров:', products.length);
+    saveUserInfo();
     
-    // Навигация
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => switchPage(btn.dataset.page));
     });
     
-    // Поиск
     const searchInput = document.getElementById('searchInput');
     if (searchInput) {
         searchInput.addEventListener('input', () => {
@@ -77,12 +125,10 @@ function initApp() {
         });
     }
     
-    // Стартовая страница
     switchPage('shop');
     updateCartBadge();
 }
 
-// ============ НАВИГАЦИЯ ============
 function switchPage(page) {
     currentPage = page;
     document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -94,12 +140,16 @@ function switchPage(page) {
     else if (page === 'cart') renderCartPage();
     else if (page === 'contacts') renderContactsPage();
     
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const mainContent = document.getElementById('mainContent');
+    if (mainContent) mainContent.scrollTop = 0;
+    
     updateCartBadge();
 }
 
 // ============ КОРЗИНА ============
 function saveCart() {
-    localStorage.setItem('amigoopt_cart', JSON.stringify(cart));
+    localStorage.setItem('elwin_cart', JSON.stringify(cart));
     updateCartBadge();
 }
 
@@ -112,19 +162,38 @@ function updateCartBadge() {
     }
 }
 
-function getVariantType(product) {
-    if (product.flavors && product.flavors.length) return { type: 'flavors', label: 'Выберите вкус', items: product.flavors };
-    if (product.colors && product.colors.length) return { type: 'colors', label: 'Выберите цвет', items: product.colors };
-    if (product.resistances && product.resistances.length) return { type: 'resistances', label: 'Выберите сопротивление', items: product.resistances };
-    return null;
+function getCartTotal() {
+    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+}
+
+// ============ ПОЛУЧЕНИЕ ДОСТУПНЫХ ОПЦИЙ ПАМЯТИ ============
+function getAvailableMemoryOptions(product) {
+    const memorySizes = [64, 128, 256, 512, 1024];
+    const options = [];
+    
+    for (const size of memorySizes) {
+        const priceKey = `price${size}`;
+        const price = product[priceKey];
+        if (price && price > 0) {
+            options.push({ size, price });
+        }
+    }
+    
+    return options;
+}
+
+function hasDefaultPrice(product) {
+    return product.defaultPrice && product.defaultPrice > 0;
 }
 
 // ============ ОТПРАВКА В TELEGRAM ============
 async function sendOrderToTelegram(orderText) {
     if (!shopConfig.botToken || shopConfig.botToken === "ВАШ_ТОКЕН_БОТА") {
-        console.log('Демо-режим: заказ не отправлен');
+        console.log('Бот не настроен');
+        alert('⚠️ Заказ создан, но бот не настроен. Сообщите менеджеру.');
         return;
     }
+    
     try {
         await fetch(`https://api.telegram.org/bot${shopConfig.botToken}/sendMessage`, {
             method: 'POST',
@@ -138,58 +207,133 @@ async function sendOrderToTelegram(orderText) {
     } catch(e) { console.error(e); }
 }
 
-function checkout() {
-    if (cart.length === 0) { 
-        alert('Корзина пуста'); 
-        return; 
+// ============ ФОРМА ОФОРМЛЕНИЯ ЗАКАЗА ============
+function openCheckoutForm() {
+    if (cart.length === 0) {
+        alert('Корзина пуста');
+        return;
     }
     
-    let order = '🛍️ <b>НОВЫЙ ЗАКАЗ</b>\n\n';
+    const userInfo = getUserInfo();
+    
+    const modal = document.getElementById('checkoutModal');
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Оформление заказа</h3>
+                <button class="close-modal" onclick="closeCheckoutModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="orderForm" class="checkout-form">
+                    <div class="form-group">
+                        <label>ФИО *</label>
+                        <input type="text" id="fullName" placeholder="Иванов Иван Иванович" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Город *</label>
+                        <input type="text" id="city" placeholder="Москва" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Адрес доставки *</label>
+                        <textarea id="address" placeholder="Улица, дом, квартира/офис" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Номер телефона *</label>
+                        <input type="tel" id="phone" placeholder="+7 (999) 123-45-67" value="${userInfo.userPhone !== 'Не указан' ? userInfo.userPhone : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Комментарий к заказу</label>
+                        <textarea id="comment" placeholder="Дополнительная информация..."></textarea>
+                    </div>
+                    <button type="submit" class="submit-order-btn">✅ Подтвердить заказ</button>
+                </form>
+            </div>
+        </div>
+    `;
+    modal.style.display = 'block';
+    
+    document.getElementById('orderForm').onsubmit = (e) => {
+        e.preventDefault();
+        submitOrder();
+    };
+}
+
+function closeCheckoutModal() {
+    document.getElementById('checkoutModal').style.display = 'none';
+    document.getElementById('checkoutModal').innerHTML = '';
+}
+
+function submitOrder() {
+    const fullName = document.getElementById('fullName')?.value.trim();
+    const city = document.getElementById('city')?.value.trim();
+    const address = document.getElementById('address')?.value.trim();
+    const phone = document.getElementById('phone')?.value.trim();
+    const comment = document.getElementById('comment')?.value.trim();
+    
+    if (!fullName) { alert('Введите ФИО'); return; }
+    if (!city) { alert('Введите город'); return; }
+    if (!address) { alert('Введите адрес доставки'); return; }
+    if (!phone) { alert('Введите номер телефона'); return; }
+    
+    const userInfo = getUserInfo();
+    
+    let order = '🛍️ <b>НОВЫЙ ЗАКАЗ (Elwin Store)</b>\n\n';
+    order += `━━━━━━━━━━━━━━━━\n`;
+    order += `<b>📋 ДАННЫЕ ПОКУПАТЕЛЯ</b>\n`;
+    order += `━━━━━━━━━━━━━━━━\n`;
+    order += `👤 <b>ФИО:</b> ${fullName}\n`;
+    order += `🏙️ <b>Город:</b> ${city}\n`;
+    order += `📍 <b>Адрес доставки:</b> ${address}\n`;
+    order += `📞 <b>Телефон:</b> ${phone}\n`;
+    order += `📱 <b>Telegram:</b> ${userInfo.userUsername}\n`;
+    order += `🆔 <b>Telegram ID:</b> <code>${userInfo.userId}</code>\n`;
+    if (comment) order += `💬 <b>Комментарий:</b> ${comment}\n`;
+    order += `━━━━━━━━━━━━━━━━\n\n`;
+    
+    order += `<b>🛒 СОСТАВ ЗАКАЗА</b>\n`;
+    order += `━━━━━━━━━━━━━━━━\n`;
+    
     let total = 0;
     cart.forEach(item => {
         const itemTotal = item.price * item.quantity;
         total += itemTotal;
-        order += `📦 ${item.name}\n   💰 ${item.price}₽ × ${item.quantity} = ${itemTotal}₽\n`;
-        if (item.selectedRange) order += `   📊 ${item.selectedRange}\n`;
-        if (item.selectedVariant) order += `   🎨 ${item.selectedVariant}\n`;
+        order += `📦 ${item.name}\n`;
+        order += `   💰 ${item.price}₽ × ${item.quantity} = ${itemTotal}₽\n`;
+        if (item.selectedMemory) order += `   💾 Память: ${item.selectedMemory}\n`;
         order += `\n`;
     });
-    order += `━━━━━━━━━━━━━━━━\n<b>ИТОГО: ${total}₽</b>`;
+    
+    order += `━━━━━━━━━━━━━━━━\n`;
+    order += `<b>💰 ИТОГО: ${total}₽</b>\n\n`;
+    order += `📅 ${new Date().toLocaleString('ru-RU')}`;
     
     sendOrderToTelegram(order);
     alert('✅ Заказ оформлен! Менеджер свяжется с вами.');
+    
     cart = [];
     saveCart();
+    closeCheckoutModal();
     if (currentPage === 'cart') renderCartPage();
     updateCartBadge();
 }
 
-// ============ МОДАЛЬНОЕ ОКНО ============
+// ============ МОДАЛЬНОЕ ОКНО ТОВАРА ============
 function openProductModal(product) {
     currentProduct = product;
-    selectedRange = null;
+    selectedMemory = null;
     selectedPrice = null;
-    selectedVariant = null;
+    selectedQuantity = 1;
     
-    const variantInfo = getVariantType(product);
-    const rangeMap = { 
-        '3000-10000': '3 000 - 10 000 ₽', 
-        '30000-100000': '30 000 - 100 000 ₽', 
-        '100000-999999': '100 000+ ₽' 
-    };
+    const memoryOptions = getAvailableMemoryOptions(product);
+    const hasMemoryOptions = memoryOptions.length > 0;
+    const hasDefault = hasDefaultPrice(product);
     
-    let rangesHtml = '<div class="range-options">';
-    for (const [range, price] of Object.entries(product.priceRanges)) {
-        rangesHtml += `<button class="range-btn" data-range="${range}" data-price="${price}">${rangeMap[range] || range} — ${price}₽/шт</button>`;
-    }
-    rangesHtml += '</div>';
-    
-    let variantsHtml = '';
-    if (variantInfo) {
-        variantsHtml = `<div id="step2Container" style="display:none;">
-            <div class="step-title"><span class="step-number">2</span> ${variantInfo.label}</div>
-            <div class="variants-grid" id="variantsGrid">
-                ${variantInfo.items.map(v => `<button class="variant-option" data-variant="${v}">${v}</button>`).join('')}
+    let memoryHtml = '';
+    if (hasMemoryOptions) {
+        memoryHtml = `<div id="memoryContainer">
+            <div class="step-title"><span class="step-number">1</span> Выберите память</div>
+            <div class="variants-grid" id="memoryGrid">
+                ${memoryOptions.map(opt => `<button class="variant-option" data-memory="${opt.size}" data-price="${opt.price}">${opt.size} ГБ — ${opt.price}₽</button>`).join('')}
             </div>
         </div>`;
     }
@@ -198,83 +342,110 @@ function openProductModal(product) {
     modal.innerHTML = `
         <div class="modal-content">
             <div class="modal-header">
-                <h3>${product.name}</h3>
+                <button class="back-modal-btn" id="backModalBtn">← Назад</button>
+                <h3 id="modalTitle">${product.name}</h3>
                 <button class="close-modal" onclick="closeModal()">×</button>
             </div>
             <div class="modal-body">
                 <img src="${product.photo}" class="modal-image" onerror="this.src='https://placehold.co/300x200/eee/999?text=No+Image'">
                 <p style="color:#666; margin-bottom:10px;">${product.description}</p>
-                <div id="step1Container">
-                    <div class="step-title"><span class="step-number">1</span> Выберите сумму заказа</div>
-                    ${rangesHtml}
+                ${memoryHtml}
+                <div id="quantityContainer" style="display:none;">
+                    <div class="step-title"><span class="step-number">${hasMemoryOptions ? '2' : '1'}</span> Выберите количество</div>
+                    <div class="quantity-selector">
+                        <label>Количество:</label>
+                        <div class="quantity-controls">
+                            <button class="quantity-btn-modal" id="decreaseQty">−</button>
+                            <span class="quantity-value" id="quantityValue">1</span>
+                            <button class="quantity-btn-modal" id="increaseQty">+</button>
+                        </div>
+                    </div>
+                    <div class="total-amount" id="totalAmount">
+                        Итого: <span id="totalSum">0</span> ₽
+                    </div>
                 </div>
-                ${variantsHtml}
-                <button class="add-to-cart-btn disabled" id="addToCartBtn">⬅️ Сначала выберите сумму</button>
+                <button class="add-to-cart-btn disabled" id="addToCartBtn">⬅️ Сначала выберите параметры</button>
             </div>
         </div>
     `;
     modal.style.display = 'block';
     
-    // Шаг 1: выбор суммы
-    document.querySelectorAll('.range-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('selected'));
-            btn.classList.add('selected');
-            selectedRange = btn.dataset.range;
-            selectedPrice = parseInt(btn.dataset.price);
-            
-            const variantInfo2 = getVariantType(product);
-            if (variantInfo2) {
-                document.getElementById('step1Container').style.opacity = '0.5';
-                const step2Container = document.getElementById('step2Container');
-                if (step2Container) step2Container.style.display = 'block';
-                step2Container.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                document.getElementById('addToCartBtn').textContent = '⬅️ Выберите вариант';
-                document.getElementById('addToCartBtn').classList.add('disabled');
-            } else {
-                document.getElementById('addToCartBtn').textContent = '🛒 Добавить в корзину';
-                document.getElementById('addToCartBtn').classList.remove('disabled');
-            }
-        });
-    });
+    const backBtn = document.getElementById('backModalBtn');
+    backBtn.onclick = () => closeModal();
     
-    // Шаг 2: выбор варианта
-    if (variantInfo) {
-        setTimeout(() => {
-            document.querySelectorAll('.variant-option').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    document.querySelectorAll('.variant-option').forEach(b => b.classList.remove('selected'));
-                    btn.classList.add('selected');
-                    selectedVariant = btn.dataset.variant;
-                    document.getElementById('addToCartBtn').textContent = '🛒 Добавить в корзину';
-                    document.getElementById('addToCartBtn').classList.remove('disabled');
-                });
+    function updateTotalDisplay() {
+        const totalSpan = document.getElementById('totalSum');
+        if (totalSpan && selectedPrice) {
+            totalSpan.textContent = selectedPrice * selectedQuantity;
+        }
+    }
+    
+    function setupQuantityButtons() {
+        const decreaseBtn = document.getElementById('decreaseQty');
+        const increaseBtn = document.getElementById('increaseQty');
+        const quantitySpan = document.getElementById('quantityValue');
+        
+        if (decreaseBtn && increaseBtn && quantitySpan) {
+            const newDecreaseBtn = decreaseBtn.cloneNode(true);
+            const newIncreaseBtn = increaseBtn.cloneNode(true);
+            decreaseBtn.parentNode.replaceChild(newDecreaseBtn, decreaseBtn);
+            increaseBtn.parentNode.replaceChild(newIncreaseBtn, increaseBtn);
+            
+            newDecreaseBtn.onclick = () => {
+                if (selectedQuantity > 1) {
+                    selectedQuantity--;
+                    quantitySpan.textContent = selectedQuantity;
+                    updateTotalDisplay();
+                }
+            };
+            newIncreaseBtn.onclick = () => {
+                selectedQuantity++;
+                quantitySpan.textContent = selectedQuantity;
+                updateTotalDisplay();
+            };
+        }
+        updateTotalDisplay();
+    }
+    
+    function checkAndShowNextStep() {
+        if (hasMemoryOptions && !selectedMemory) return;
+        
+        document.getElementById('quantityContainer').style.display = 'block';
+        document.getElementById('addToCartBtn').textContent = '🛒 Добавить в корзину';
+        document.getElementById('addToCartBtn').classList.remove('disabled');
+        setupQuantityButtons();
+    }
+    
+    if (hasMemoryOptions) {
+        document.querySelectorAll('[data-memory]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('[data-memory]').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                selectedMemory = btn.dataset.memory;
+                selectedPrice = parseInt(btn.dataset.price);
+                checkAndShowNextStep();
             });
-        }, 50);
+        });
+    } else if (hasDefault) {
+        selectedPrice = product.defaultPrice;
+        checkAndShowNextStep();
     }
     
     const addBtn = document.getElementById('addToCartBtn');
     addBtn.onclick = () => {
-        if (!selectedRange) { 
-            alert('Сначала выберите сумму заказа'); 
-            return; 
-        }
-        const variantInfo3 = getVariantType(product);
-        if (variantInfo3 && !selectedVariant) { 
-            alert('Выберите вариант'); 
-            return; 
+        if (!selectedPrice) {
+            alert('Выберите параметры товара');
+            return;
         }
         
         cart.push({
             id: product.id,
             name: product.name,
             price: selectedPrice,
-            selectedRange: selectedRange,
-            selectedVariant: selectedVariant || null,
-            quantity: 1
+            selectedMemory: selectedMemory ? selectedMemory + ' ГБ' : null,
+            quantity: selectedQuantity
         });
+        
         saveCart();
         closeModal();
         alert('✅ Товар добавлен в корзину');
@@ -288,27 +459,44 @@ function closeModal() {
     document.getElementById('modalOverlay').innerHTML = '';
 }
 
-// ============ РЕНДЕР СТРАНИЦ ============
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 function renderProductCard(product) {
-    const displayPrice = product.sale ? product.salePrice : Object.values(product.priceRanges)[0];
-    const productJson = JSON.stringify(product).replace(/'/g, "&#39;");
+    let displayPrice;
+    const memoryOptions = getAvailableMemoryOptions(product);
+    
+    if (memoryOptions.length > 0) {
+        displayPrice = memoryOptions[0].price;
+    } else if (hasDefaultPrice(product)) {
+        displayPrice = product.defaultPrice;
+    } else {
+        displayPrice = 0;
+    }
+    
+    const productJson = JSON.stringify(product).replace(/'/g, "&#39;").replace(/"/g, '&quot;');
+    
+    const rightContent = product.sale 
+        ? '<span class="sale-badge">🔥 SALE</span>' 
+        : '<span class="sale-placeholder"></span>';
+    
     return `
         <div class="product-card" onclick='openProductModal(${productJson})'>
             <img src="${product.photo}" class="product-image" onerror="this.src='https://placehold.co/300x200/eee/999?text=No+Image'">
             <div class="product-info">
                 <div class="product-name">${escapeHtml(product.name)}</div>
-                <div class="product-price">${displayPrice}₽</div>
-                ${product.sale ? '<span class="sale-badge">🔥 SALE</span>' : ''}
+                <div class="product-price-wrapper">
+                    <span class="product-price">${displayPrice}₽</span>
+                    ${rightContent}
+                </div>
                 <button class="open-btn">Открыть</button>
             </div>
         </div>
     `;
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 function renderShopPage() {
@@ -356,21 +544,30 @@ function renderSalesPage() {
 
 function renderCartPage() {
     if (!cart.length) { 
-        document.getElementById('mainContent').innerHTML = '<div class="empty-cart">🛒 Корзина пуста</div>'; 
+        document.getElementById('mainContent').innerHTML = `
+            <div style="min-height: 60vh; display: flex; align-items: center; justify-content: center;">
+                <div class="empty-cart">🛒 Корзина пуста</div>
+            </div>
+        `; 
         return; 
     }
     
-    let html = `<h2 class="section-title">🛒 Корзина</h2><div class="cart-items-list">`;
-    let total = 0;
+    let total = getCartTotal();
+    
+    let html = `<h2 class="section-title">🛒 Корзина</h2>`;
+    html += `<div class="range-notification">💰 Сумма корзины: ${total} ₽</div>`;
+    html += `<div class="cart-items-list">`;
+    
     cart.forEach((item, idx) => {
         const itemTotal = item.price * item.quantity;
-        total += itemTotal;
         html += `
             <div class="cart-item">
                 <div class="cart-item-info">
                     <div class="cart-item-title">${escapeHtml(item.name)}</div>
                     <div class="cart-item-price">${item.price}₽ × ${item.quantity} = ${itemTotal}₽</div>
-                    <div class="cart-item-details">${item.selectedRange ? `Сумма: ${item.selectedRange}` : ''}${item.selectedVariant ? ` | ${escapeHtml(item.selectedVariant)}` : ''}</div>
+                    <div class="cart-item-details">
+                        ${item.selectedMemory ? `💾 ${item.selectedMemory}` : ''}
+                    </div>
                 </div>
                 <div class="cart-item-controls">
                     <button class="quantity-btn" data-idx="${idx}" data-delta="-1">−</button>
@@ -406,7 +603,7 @@ function renderCartPage() {
         });
     });
     
-    document.getElementById('checkoutBtn')?.addEventListener('click', checkout);
+    document.getElementById('checkoutBtn')?.addEventListener('click', openCheckoutForm);
 }
 
 function renderContactsPage() {
