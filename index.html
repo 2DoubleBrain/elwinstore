@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <title>AmigoOPT - Магазин техники</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+            <div class="header-center">
+                <div class="logo">🛒</div>
+                <h1 class="shop-title">AmigoOPT</h1>
+            </div>
+        </header>
+
+        <div class="search-container">
+            <input type="text" id="searchInput" placeholder="🔍 Поиск товаров..." class="search-input">
+        </div>
+
+        <main id="mainContent" class="main-content">
+            <div style="text-align:center; padding:50px">Загрузка...</div>
+        </main>
+
+        <nav class="bottom-nav">
+            <button class="nav-btn active" data-page="shop">🛍️<span>Магазин</span></button>
+            <button class="nav-btn" data-page="sales">🔥<span>Акции</span></button>
+            <button class="nav-btn" data-page="cart">🛒<span>Корзина</span><span id="cartBadge" class="cart-badge">0</span></button>
+            <button class="nav-btn" data-page="contacts">📞<span>Контакты</span></button>
+        </nav>
+    </div>
+
+    <div id="modalOverlay" class="modal-overlay"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
