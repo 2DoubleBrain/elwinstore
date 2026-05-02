@@ -11,7 +11,7 @@
     <div class="app-container">
         <header class="header">
             <div class="header-center">
-                 <img src="https://sun9-1.userapi.com/s/v1/ig2/zPVlLn5vfjN9_o2eWlOwzOhwtBWlUN7b6K2r7UBS4lDzhTzZPHxq3hhUkGf6bj7aaoQzbZCY0VrvwpHwCGjGL2et.jpg?quality=95&as=32x32,48x48,72x72,108x108,160x160,240x240,360x360,480x480,540x540,640x640,720x720,1080x1080,1280x1280,1440x1440,2560x2560&from=bu&u=6NGR3ljDuBhK2h6_9_NkXFZeyiPGYY1iq6_AmmwMpWI&cs=2560x0" class="logo" alt="Logo">
+                <img src="https://sun9-1.userapi.com/s/v1/ig2/zPVlLn5vfjN9_o2eWlOwzOhwtBWlUN7b6K2r7UBS4lDzhTzZPHxq3hhUkGf6bj7aaoQzbZCY0VrvwpHwCGjGL2et.jpg?quality=95&as=32x32,48x48,72x72,108x108,160x160,240x240,360x360,480x480,540x540,640x640,720x720,1080x1080,1280x1280,1440x1440,2560x2560&from=bu&u=6NGR3ljDuBhK2h6_9_NkXFZeyiPGYY1iq6_AmmwMpWI&cs=2560x0" class="logo" alt="Logo">
                 <h1 class="shop-title">Elwin Store</h1>
             </div>
         </header>
@@ -30,6 +30,19 @@
             <button class="nav-btn" data-page="cart">🛒<span>Корзина</span><span id="cartBadge" class="cart-badge">0</span></button>
             <button class="nav-btn" data-page="contacts">📞<span>Контакты</span></button>
         </nav>
+    </div>
+
+    <!-- Модальное окно выбора типа покупки (Опт/Розница) -->
+    <div id="purchaseTypeModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Выберите тип покупки</h3>
+            </div>
+            <div class="modal-body" style="text-align:center">
+                <button id="retailBtn" style="background:#1a3a8c; color:#FF8C00; border:2px solid #FF8C00; padding:15px 30px; border-radius:30px; font-size:16px; font-weight:bold; margin:10px; width:80%; cursor:pointer;">🛍️ Розница (до 3 шт)</button>
+                <button id="wholesaleBtn" style="background:#FF8C00; color:#1a3a8c; border:none; padding:15px 30px; border-radius:30px; font-size:16px; font-weight:bold; margin:10px; width:80%; cursor:pointer;">📦 Опт (от 3 шт одного товара)</button>
+            </div>
+        </div>
     </div>
 
     <div id="modalOverlay" class="modal-overlay"></div>
