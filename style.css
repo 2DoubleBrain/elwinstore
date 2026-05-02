@@ -39,12 +39,8 @@ body {
 .logo {
     width: 40px;
     height: 40px;
-    background: #FF8C00;
     border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
+    object-fit: cover;
 }
 
 .shop-title {
@@ -144,7 +140,6 @@ body {
     transform: scale(0.98);
 }
 
-/* ФОТО ТОВАРОВ - НЕ РАСТЯГИВАЮТСЯ, БЕЛЫЙ ФОН */
 .product-image {
     width: 100%;
     height: 150px;
@@ -304,7 +299,6 @@ body {
     padding: 20px;
 }
 
-/* ФОТО В МОДАЛЬНОМ ОКНЕ */
 .modal-image {
     width: 100%;
     max-height: 250px;
@@ -536,6 +530,24 @@ body {
     border-radius: 12px;
     font-size: 13px;
     color: #1a3a8c;
+}
+
+/* Уведомление о смене типа цены */
+.price-type-notification {
+    background: #FFF3E0;
+    border-left: 4px solid #FF8C00;
+    padding: 10px 15px;
+    margin-bottom: 15px;
+    border-radius: 12px;
+    font-size: 13px;
+    color: #e65100;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.price-type-notification span {
+    font-size: 18px;
 }
 
 .bottom-nav {
