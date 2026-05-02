@@ -5,12 +5,15 @@ let shopConfig = {};
 let cart = [];
 let currentPage = 'shop';
 let currentCategory = 'all';
+let purchaseType = null; // 'retail' или 'wholesale'
+let pendingProduct = null; // для сохранения товара перед выбором типа
 
 // Переменные для модального окна
 let currentProduct = null;
 let selectedMemory = null;
 let selectedPrice = null;
 let selectedQuantity = 1;
+let minQuantity = 1;
 
 // ============ ПОЛУЧЕНИЕ ИНФОРМАЦИИ О ПОЛЬЗОВАТЕЛЕ ============
 function getUserInfo() {
@@ -93,6 +96,13 @@ async function loadData() {
             cart = JSON.parse(savedCart);
         }
         
+        const savedPurchaseType = localStorage.getItem('elwin_purchase_type');
+        if (savedPurchaseType && (savedPurchaseType === 'retail' || savedPurchaseType === 'wholesale')) {
+            purchaseType = savedPurchaseType;
+        } else {
+            showPurchaseTypeModal();
+        }
+        
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.expand();
         }
@@ -109,6 +119,35 @@ async function loadData() {
             </div>
         `;
     }
+}
+
+function showPurchaseTypeModal() {
+    const modal = document.getElementById('purchaseTypeModal');
+    modal.style.display = 'block';
+    
+    document.getElementById('retailBtn').onclick = () => {
+        purchaseType = 'retail';
+        localStorage.setItem('elwin_purchase_type', 'retail');
+        modal.style.display = 'none';
+        if (pendingProduct) {
+            openProductModal(pendingProduct);
+            pendingProduct = null;
+        }
+        renderShopPage();
+        updateCartBadge();
+    };
+    
+    document.getElementById('wholesaleBtn').onclick = () => {
+        purchaseType = 'wholesale';
+        localStorage.setItem('elwin_purchase_type', 'wholesale');
+        modal.style.display = 'none';
+        if (pendingProduct) {
+            openProductModal(pendingProduct);
+            pendingProduct = null;
+        }
+        renderShopPage();
+        updateCartBadge();
+    };
 }
 
 function initApp() {
@@ -147,6 +186,116 @@ function switchPage(page) {
     updateCartBadge();
 }
 
+// ============ ПОЛУЧЕНИЕ ЦЕНЫ В ЗАВИСИМОСТИ ОТ ТИПА ПОКУПКИ ============
+function getPriceFromProduct(product, memoryKey, isWholesale) {
+    const suffix = isWholesale ? '_opt' : '_retail';
+    const priceKey = memoryKey ? `${memoryKey}${suffix}` : `defaultPrice${suffix}`;
+    const price = product[priceKey];
+    return price && price > 0 ? price : null;
+}
+
+function getAvailableMemoryOptions(product) {
+    const memorySizes = ['64', '128', '256', '512', '1024'];
+    const options = [];
+    const isWholesale = (purchaseType === 'wholesale');
+    
+    for (const size of memorySizes) {
+        const price = getPriceFromProduct(product, `price${size}`, isWholesale);
+        if (price && price > 0) {
+            options.push({ size: parseInt(size), price });
+        }
+    }
+    
+    return options;
+}
+
+function getDefaultPrice(product) {
+    const isWholesale = (purchaseType === 'wholesale');
+    return getPriceFromProduct(product, null, isWholesale);
+}
+
+function hasDefaultPrice(product) {
+    const price = getDefaultPrice(product);
+    return price && price > 0;
+}
+
+// ============ ЛОГИКА КОРЗИНЫ С ПРОВЕРКОЙ ОПТА ============
+function checkAndUpdateCartPrices() {
+    let changed = false;
+    const isWholesale = (purchaseType === 'wholesale');
+    
+    cart = cart.map(item => {
+        const product = products.find(p => p.id === item.id);
+        if (product) {
+            let newPrice = null;
+            if (item.selectedMemory) {
+                const memorySize = item.selectedMemory.replace(' ГБ', '');
+                newPrice = getPriceFromProduct(product, `price${memorySize}`, isWholesale);
+            } else {
+                newPrice = getDefaultPrice(product);
+            }
+            
+            if (newPrice && item.price !== newPrice) {
+                changed = true;
+                return { ...item, price: newPrice };
+            }
+        }
+        return item;
+    });
+    
+    if (changed) {
+        saveCart();
+        if (currentPage === 'cart') renderCartPage();
+        updateCartBadge();
+    }
+}
+
+function updateQuantityInCart(index, delta) {
+    const isWholesale = (purchaseType === 'wholesale');
+    const item = cart[index];
+    const newQty = item.quantity + delta;
+    
+    if (isWholesale) {
+        // Опт: минимальное количество 3
+        if (newQty < 3) {
+            if (newQty <= 0) {
+                cart.splice(index, 1);
+            } else {
+                cart[index].quantity = 3;
+                alert('⚠️ При оптовой покупке минимальное количество товара — 3 шт!');
+            }
+        } else {
+            cart[index].quantity = newQty;
+        }
+    } else {
+        // Розница: можно удалять
+        if (newQty <= 0) {
+            cart.splice(index, 1);
+        } else {
+            cart[index].quantity = newQty;
+            // Проверка: если пользователь выбрал розницу, но добавил >=3 шт одного товара
+            if (newQty >= 3 && purchaseType === 'retail') {
+                // Предлагаем переключиться на опт
+                const switchToOpt = confirm('⚠️ Вы добавили 3 и более штук одного товара!\n\nЦена изменится на минимальную (оптовую)! Переключиться на оптовые цены?');
+                if (switchToOpt) {
+                    purchaseType = 'wholesale';
+                    localStorage.setItem('elwin_purchase_type', 'wholesale');
+                    alert('✅ Цены пересчитаны по оптовому прайсу!');
+                    checkAndUpdateCartPrices();
+                    renderCartPage();
+                    renderShopPage();
+                    updateCartBadge();
+                    return;
+                }
+            }
+        }
+    }
+    
+    saveCart();
+    renderCartPage();
+    updateCartBadge();
+}
+
 // ============ КОРЗИНА ============
 function saveCart() {
     localStorage.setItem('elwin_cart', JSON.stringify(cart));
@@ -164,26 +313,6 @@ function updateCartBadge() {
 
 function getCartTotal() {
     return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-}
-
-// ============ ПОЛУЧЕНИЕ ДОСТУПНЫХ ОПЦИЙ ПАМЯТИ ============
-function getAvailableMemoryOptions(product) {
-    const memorySizes = [64, 128, 256, 512, 1024];
-    const options = [];
-    
-    for (const size of memorySizes) {
-        const priceKey = `price${size}`;
-        const price = product[priceKey];
-        if (price && price > 0) {
-            options.push({ size, price });
-        }
-    }
-    
-    return options;
-}
-
-function hasDefaultPrice(product) {
-    return product.defaultPrice && product.defaultPrice > 0;
 }
 
 // ============ ОТПРАВКА В TELEGRAM ============
@@ -276,6 +405,7 @@ function submitOrder() {
     if (!phone) { alert('Введите номер телефона'); return; }
     
     const userInfo = getUserInfo();
+    const priceTypeText = purchaseType === 'wholesale' ? 'ОПТ' : 'РОЗНИЦА';
     
     let order = '🛍️ <b>НОВЫЙ ЗАКАЗ (Elwin Store)</b>\n\n';
     order += `━━━━━━━━━━━━━━━━\n`;
@@ -287,6 +417,7 @@ function submitOrder() {
     order += `📞 <b>Телефон:</b> ${phone}\n`;
     order += `📱 <b>Telegram:</b> ${userInfo.userUsername}\n`;
     order += `🆔 <b>Telegram ID:</b> <code>${userInfo.userId}</code>\n`;
+    order += `🏷️ <b>Тип цены:</b> ${priceTypeText}\n`;
     if (comment) order += `💬 <b>Комментарий:</b> ${comment}\n`;
     order += `━━━━━━━━━━━━━━━━\n\n`;
     
@@ -318,11 +449,18 @@ function submitOrder() {
 }
 
 // ============ МОДАЛЬНОЕ ОКНО ТОВАРА ============
-function openProductModal(product) {
+function openProductModal(product, skipTypeCheck = false) {
+    if (!purchaseType && !skipTypeCheck) {
+        pendingProduct = product;
+        showPurchaseTypeModal();
+        return;
+    }
+    
     currentProduct = product;
     selectedMemory = null;
     selectedPrice = null;
-    selectedQuantity = 1;
+    selectedQuantity = purchaseType === 'wholesale' ? 3 : 1;
+    minQuantity = purchaseType === 'wholesale' ? 3 : 1;
     
     const memoryOptions = getAvailableMemoryOptions(product);
     const hasMemoryOptions = memoryOptions.length > 0;
@@ -349,14 +487,17 @@ function openProductModal(product) {
             <div class="modal-body">
                 <img src="${product.photo}" class="modal-image" onerror="this.src='https://placehold.co/300x200/eee/999?text=No+Image'">
                 <p style="color:#666; margin-bottom:10px;">${product.description}</p>
+                <div class="price-type-indicator" style="background:#e8f0fe; padding:8px 12px; border-radius:12px; margin-bottom:15px; text-align:center;">
+                    ${purchaseType === 'wholesale' ? '📦 Оптовая цена (от 3 шт)' : '🛍️ Розничная цена (до 3 шт)'}
+                </div>
                 ${memoryHtml}
                 <div id="quantityContainer" style="display:none;">
                     <div class="step-title"><span class="step-number">${hasMemoryOptions ? '2' : '1'}</span> Выберите количество</div>
                     <div class="quantity-selector">
-                        <label>Количество:</label>
+                        <label>Количество: ${purchaseType === 'wholesale' ? '(мин. 3 шт)' : ''}</label>
                         <div class="quantity-controls">
                             <button class="quantity-btn-modal" id="decreaseQty">−</button>
-                            <span class="quantity-value" id="quantityValue">1</span>
+                            <span class="quantity-value" id="quantityValue">${selectedQuantity}</span>
                             <button class="quantity-btn-modal" id="increaseQty">+</button>
                         </div>
                     </div>
@@ -392,16 +533,22 @@ function openProductModal(product) {
             increaseBtn.parentNode.replaceChild(newIncreaseBtn, increaseBtn);
             
             newDecreaseBtn.onclick = () => {
-                if (selectedQuantity > 1) {
+                if (selectedQuantity > minQuantity) {
                     selectedQuantity--;
                     quantitySpan.textContent = selectedQuantity;
                     updateTotalDisplay();
+                } else if (purchaseType === 'wholesale' && selectedQuantity === minQuantity) {
+                    alert('⚠️ Минимальное количество для опта — 3 штуки!');
                 }
             };
             newIncreaseBtn.onclick = () => {
                 selectedQuantity++;
                 quantitySpan.textContent = selectedQuantity;
                 updateTotalDisplay();
+                
+                if (purchaseType === 'retail' && selectedQuantity >= 3) {
+                    alert('⚠️ При заказе от 3 штук цена будет пересчитана по оптовому прайсу!\nВы сможете переключиться в корзине.');
+                }
             };
         }
         updateTotalDisplay();
@@ -427,7 +574,7 @@ function openProductModal(product) {
             });
         });
     } else if (hasDefault) {
-        selectedPrice = product.defaultPrice;
+        selectedPrice = getDefaultPrice(product);
         checkAndShowNextStep();
     }
     
@@ -438,9 +585,25 @@ function openProductModal(product) {
             return;
         }
         
+        // Проверка для розницы: если пользователь выбрал больше 2 штук
+        if (purchaseType === 'retail' && selectedQuantity >= 3) {
+            const switchToOpt = confirm('⚠️ Вы выбрали 3 и более штук!\n\nЦена изменится на минимальную (оптовую)! Переключиться на оптовые цены?');
+            if (switchToOpt) {
+                purchaseType = 'wholesale';
+                localStorage.setItem('elwin_purchase_type', 'wholesale');
+                const newPrice = getPriceFromProduct(currentProduct, selectedMemory ? `price${selectedMemory}` : null, true);
+                if (newPrice) selectedPrice = newPrice;
+                alert('✅ Цены пересчитаны по оптовому прайсу!');
+            } else {
+                // Если не переключился, но количество >=3, то нельзя добавить
+                alert('❌ Для розницы максимальное количество — 2 штуки. Для заказа от 3 штук выберите оптовую цену.');
+                return;
+            }
+        }
+        
         cart.push({
-            id: product.id,
-            name: product.name,
+            id: currentProduct.id,
+            name: currentProduct.name,
             price: selectedPrice,
             selectedMemory: selectedMemory ? selectedMemory + ' ГБ' : null,
             quantity: selectedQuantity
@@ -473,7 +636,7 @@ function renderProductCard(product) {
     if (memoryOptions.length > 0) {
         displayPrice = memoryOptions[0].price;
     } else if (hasDefaultPrice(product)) {
-        displayPrice = product.defaultPrice;
+        displayPrice = getDefaultPrice(product);
     } else {
         displayPrice = 0;
     }
@@ -518,6 +681,13 @@ function renderShopPage() {
     });
     html += `</div>`;
     
+    if (purchaseType) {
+        html += `<div class="price-type-notification">
+            <span>${purchaseType === 'wholesale' ? '📦' : '🛍️'}</span>
+            <span>${purchaseType === 'wholesale' ? 'Оптовые цены (от 3 шт)' : 'Розничные цены (до 3 шт)'}</span>
+        </div>`;
+    }
+    
     if (popular.length) html += `<h2 class="section-title">⭐ Популярное</h2><div class="products-grid">${popular.map(p => renderProductCard(p)).join('')}</div>`;
     if (other.length) html += `<h2 class="section-title">📦 Все товары</h2><div class="products-grid">${other.map(p => renderProductCard(p)).join('')}</div>`;
     if (!filtered.length) html = `<div style="text-align:center;padding:50px">🔍 Ничего не найдено</div>`;
@@ -538,7 +708,16 @@ function renderSalesPage() {
         return;
     }
     const saleProducts = products.filter(p => p.sale === true);
-    let html = `<h2 class="section-title">🔥 Акции</h2><div class="products-grid">${saleProducts.length ? saleProducts.map(p => renderProductCard(p)).join('') : '<div style="text-align:center;padding:50px">Нет товаров по акции</div>'}</div>`;
+    let html = `<h2 class="section-title">🔥 Акции</h2>`;
+    
+    if (purchaseType) {
+        html += `<div class="price-type-notification">
+            <span>${purchaseType === 'wholesale' ? '📦' : '🛍️'}</span>
+            <span>${purchaseType === 'wholesale' ? 'Оптовые цены (от 3 шт)' : 'Розничные цены (до 3 шт)'}</span>
+        </div>`;
+    }
+    
+    html += `<div class="products-grid">${saleProducts.length ? saleProducts.map(p => renderProductCard(p)).join('') : '<div style="text-align:center;padding:50px">Нет товаров по акции</div>'}</div>`;
     document.getElementById('mainContent').innerHTML = html;
 }
 
@@ -553,8 +732,13 @@ function renderCartPage() {
     }
     
     let total = getCartTotal();
+    const priceTypeText = purchaseType === 'wholesale' ? 'Оптовые цены (от 3 шт)' : 'Розничные цены (до 3 шт)';
     
     let html = `<h2 class="section-title">🛒 Корзина</h2>`;
+    html += `<div class="price-type-notification">
+        <span>${purchaseType === 'wholesale' ? '📦' : '🛍️'}</span>
+        <span>${priceTypeText}</span>
+    </div>`;
     html += `<div class="range-notification">💰 Сумма корзины: ${total} ₽</div>`;
     html += `<div class="cart-items-list">`;
     
@@ -585,12 +769,7 @@ function renderCartPage() {
         btn.addEventListener('click', () => {
             const idx = parseInt(btn.dataset.idx);
             const delta = parseInt(btn.dataset.delta);
-            const newQty = cart[idx].quantity + delta;
-            if (newQty <= 0) cart.splice(idx, 1);
-            else cart[idx].quantity = newQty;
-            saveCart();
-            renderCartPage();
-            updateCartBadge();
+            updateQuantityInCart(idx, delta);
         });
     });
     
